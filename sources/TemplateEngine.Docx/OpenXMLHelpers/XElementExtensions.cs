@@ -66,7 +66,7 @@ namespace TemplateEngine.Docx
 				sdt.Add(new XElement(W.sdtContent, new XElement(W.p), new XElement(W.r, new XElement(W.t, newValue))));
 			}
 
-			ReplaceNewLinesWithBreaks(sdt);
+			ReplaceNewLinesWithParagraphs(sdt);
 		}
 
 		public static void RemoveContentControl(this XElement sdt)
@@ -139,22 +139,50 @@ namespace TemplateEngine.Docx
 			}
 		}
 
-		public static void ReplaceNewLinesWithBreaks(XElement xElem)
+		/// <summary>
+		/// Transforms newlines in text content into word paragraphs
+		/// </summary>
+		public static void ReplaceNewLinesWithParagraphs(XElement xElem)
 		{
 			if (xElem == null) return;
+			
+			// Convert simple text control to rich text control
+			xElem.Descendants(W.text).Remove();
 
-			var textWithBreaks = xElem.Descendants(W.t).Where(t => t.Value.Contains("\r\n"));
-			foreach (var textWithBreak in textWithBreaks)
+			var paragraphs = xElem.Descendants(W.p).ToList();
+			if (paragraphs == null || !paragraphs.Any()) return;
+
+			foreach (var oldParagraph in paragraphs)
 			{
-				var text = textWithBreak.Value;
-				var split = text.Replace("\r\n", "\n").Split(new[] { "\n" }, StringSplitOptions.None);
-				textWithBreak.Value = string.Empty;
-				foreach (var s in split)
-				{
-					textWithBreak.Add(new XElement(W.t, s));
-					textWithBreak.Add(new XElement(W.br));
+				var textParts = oldParagraph.Descendants(W.t);
+				if (!textParts.Where(t => t.Value.Contains("\n")).Any()) { continue; } 
+				
+				var newParagraphs = new List<XElement>();
+				foreach (var textWithBreak in textParts) {
+					var text = textWithBreak.Value;
+					var lines = text.Replace("\r\n", "\n").Split(new[] { "\n" }, StringSplitOptions.None);
+					
+					foreach (var line in lines) 
+					{
+						// To preserve format we use copy of current paragraph
+						var p = new XElement(oldParagraph);
+						var firstTextNode = p.Descendants(W.t)
+							.Where(t => t.Parent.Name == W.r)
+							.First();
+						var firsrtRun = firstTextNode.Parent;
+						foreach(var run in p.Descendants(W.r).ToList()) {
+							if (run == firsrtRun) continue;
+							run.Remove();
+						}
+						foreach (var textNode in firstTextNode.Descendants(W.t).ToList()) {
+							if (textNode == firstTextNode) continue;
+							textNode.Remove();
+						}
+						firstTextNode.Value = line;
+						newParagraphs.Add(p);
+					}
 				}
-				textWithBreak.Descendants(W.br).Last().Remove();
+				oldParagraph.ReplaceWith(newParagraphs);
 			}
 		}
 	}
